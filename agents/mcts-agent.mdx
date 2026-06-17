@@ -92,15 +92,47 @@ When `play_outs > 0`:
 </ResponseField>
 
 <ResponseField name="value" type="float">
-  The win/visit ratio (`win / N`) of the selected child node. Reflects the
-  tree's confidence in the chosen move.
+  The win/visit ratio (`res.win / res.N`) of the selected child node. Reflects
+  the tree's confidence in the chosen move.
 </ResponseField>
 
 <Note>
   When `play_outs=0`, the method falls back to `random_action()` and returns
-  only a 3-tuple: `(state, end, result)` — **without** `action` or `value`.
+  only a **3-tuple**: `(state, end, result)` — **without** `action` or `value`.
   Ensure callers unpack accordingly when mixing playout counts.
 </Note>
+
+---
+
+### `random_action() -> np.int64`
+
+Selects a column uniformly at random from all non-full columns. Full columns receive probability weight `0`; the remaining valid columns share equal probability. Used automatically by `take_action()` when `play_outs=0`.
+
+**Returns:** `np.int64` — the chosen column index.
+
+```python
+action = random.choices(actions, probabilities, k=1)
+return np.int64(action[0])
+```
+
+---
+
+### `construct_tree(root, depth)`
+
+Pre-builds the search tree to a fixed depth of `4` before the MCTS playout loop begins. Called internally by `take_action()` when `play_outs > 0`. For each valid column at each level, a child `Node` is created and appended to the parent's `children` list, alternating player tokens by depth parity.
+
+**Parameters**
+
+<ParamField path="root" type="Node">
+  The root node representing the current board state.
+</ParamField>
+
+<ParamField path="depth" type="int">
+  Remaining depth to build. The initial call uses `4`; recursion stops when
+  `depth <= 0`.
+</ParamField>
+
+**Returns:** `None`
 
 ---
 
@@ -147,11 +179,17 @@ Expands `leaf` by adding one child node for every valid (non-full) column. Retur
   the MCTS agent's own token; odd depth → the opponent's token.
 </ParamField>
 
-**Returns:** `(child: Node, depth: int)` — the first newly-created child (a copy of `leaf.children[0]`) and `depth + 1`.
+**Returns:** `(child: Node, depth: int)` — a new `Node` wrapping a copy of `leaf.children[0]`'s state and `depth + 1`.
 
 <Note>
-  If the leaf is a terminal state (no valid columns), expansion returns the leaf
-  itself unchanged.
+  If `leaf` has no valid moves (terminal state) **or** if `leaf.N == 0`
+  (unvisited leaf), expansion returns `(leaf, depth)` unchanged without
+  incrementing depth. The early-return condition in source is:
+
+  ```python
+  if not (len(leaf.children) != 0 and leaf.N != 0):
+      return leaf, depth
+  ```
 </Note>
 
 ---
@@ -182,13 +220,13 @@ Propagates the simulation result back through every node stored in `self.parents
 **Parameters**
 
 <ParamField path="result" type="str">
-  The string returned by `simulation()`: `"win"` adds `+1`, `"loss"` adds `-1`,
-  `"draw"` adds `0` to each node's `win` tally.
+  The string returned by `simulation()`. The score added to each node's `win`
+  tally is: `+1` for `"win"`, `-1` for `"loss"`, `0` for `"draw"`.
 </ParamField>
 
 <ParamField path="child" type="Node">
   The simulated child node. Its ancestors are stored in `self.parents` and are
-  all updated.
+  all updated in the loop.
 </ParamField>
 
 **Returns:** `None`
@@ -285,7 +323,7 @@ class Node:
 | Field | Type | Description |
 |---|---|---|
 | `N` | `int` | Total number of times this node has been visited during back-propagation. Starts at `0`. |
-| `win` | `int / float` | Cumulative win score. Incremented by `+1` for a win, `-1` for a loss, `0` for a draw. Starts at `0`. |
+| `win` | `int` | Cumulative win score. Updated by `back_propagation()`: `+1` for a win, `-1` for a loss, `0` for a draw. Starts at `0`. |
 | `children` | `list[Node]` | Child nodes added during expansion. Empty until `expansion()` is called. |
 | `state` | `list[list[int]]` | Deep copy of the board at the time this node was created. |
 
@@ -293,7 +331,22 @@ class Node:
 
 **`update(win)`**
 
-Increments `self.N` by 1 and conditionally increments `self.win`.
+Increments `self.N` by 1. Also increments `self.win` by 1, but only if `self.win` is currently truthy (i.e., non-zero). Note that `back_propagation()` updates `N` and `win` directly on each node in `self.parents` rather than calling `update()`, so this method is not used in the main MCTS loop.
+
+```python
+def update(self, win):
+    if self.win == True:   # truthy check on self.win, not the `win` parameter
+        self.win += 1
+    self.N += 1
+```
+
+<Warning>
+  The `win` parameter is not used inside `update()`. The conditional checks
+  `self.win == True` (the instance field), so `self.win` only increments when
+  it is already `1`. This is a quirk of the source implementation; direct field
+  mutation via `back_propagation()` is the mechanism actually used during
+  gameplay.
+</Warning>
 
 **`get_ratio() -> float`**
 

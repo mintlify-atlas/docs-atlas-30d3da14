@@ -71,12 +71,12 @@ After every move the agent prints a brief summary and then displays the final bo
 
 ```text
 0
-Player1(MCTS with 50 playouts)
+Player1(MCTS with50 playouts)
 Action selected : 2
 Total playouts for next state: 50
 Value of next state according to MCTS : 0.34
 
-Player2(MCTS with 50 playouts)
+Player2(MCTS with50 playouts)
 Action selected : 3
 Total playouts for next state: 50
 Value of next state according to MCTS : 0.41
@@ -133,7 +133,7 @@ Currently, the number rows is set to: 3
 During each episode, every move is also logged:
 
 ```text
-Player 1 (MCTS with 10 playouts
+Player 1 (MCTS with10 playouts
 Action selected : 1
 Value of next state according to MCTS : 0.28
 
@@ -141,6 +141,10 @@ Player 2 (Q-learning)
 Action selected : 2
 Value of next state : -1.0
 ```
+
+<Note>
+  The `Player 1` line has no closing parenthesis and no space before the playout count — that is the exact string the source code prints: `'Player 1 (MCTS with' + str(n) + ' playouts'`.
+</Note>
 
 <Note>
   This step requires `q_data.dat.gz` to be present in the working directory. The file is included in the repository. If it is missing (for example after running `train_qlearning()` with a different board size), re-clone the repo or complete Step 5 below to generate a new one.

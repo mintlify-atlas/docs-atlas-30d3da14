@@ -55,7 +55,7 @@ Loads the current board into the agent. Must be called before `take_action()`.
 
 Selects a column uniformly at random from all non-full columns, drops the agent's piece via gravity to the lowest empty row, then checks whether the game has ended.
 
-**Returns:**
+**Returns — 4-tuple:**
 
 <ResponseField name="state" type="list[list[int]]">
   The updated board after the piece has been placed. Modified in-place from the
@@ -71,20 +71,20 @@ Selects a column uniformly at random from all non-full columns, drops the agent'
   are full with no winner, or `".."` if the game is still in progress.
 </ResponseField>
 
-<ResponseField name="action" type="int">
+<ResponseField name="action" type="np.int64">
   Column index (0-based) that was chosen.
 </ResponseField>
 
 ---
 
-### `random_action() -> int`
+### `random_action() -> np.int64`
 
 Samples a single column index uniformly from all columns whose top cell (`state[0][i]`) is empty. Full columns receive a probability weight of `0` and are excluded.
 
-**Returns:** `int` (specifically `numpy.int64`) — the chosen column index.
+**Returns:** `np.int64` — the chosen column index.
 
 ```python
-# Internally uses numpy's random.choices with a uniform distribution
+# Internally uses random.choices with a uniform distribution
 # over valid columns. Full columns are given weight 0.
 action = random.choices(actions, probabilities, k=1)
 return np.int64(action[0])
@@ -116,6 +116,16 @@ Checks whether the board has reached a terminal condition after the most recent 
 - `(True, "draw")` — all columns are full with no winner.
 - `(False, "..")` — the game is still in progress.
 
+<Warning>
+  The draw-detection loop in the source hardcodes `for y in range(5)` instead
+  of `for y in range(self.c)`. This means the draw check always scans exactly 5
+  columns regardless of the value passed as `c` to the constructor. On boards
+  with fewer or more than 5 columns the draw detection will be incorrect.
+  `MCTS` and `Q_Learning` use their own `is_terminal_state` implementations
+  which correctly use `self.c`, so this limitation only affects
+  `Random_Player` when used standalone on non-5-column boards.
+</Warning>
+
 ---
 
 ### `is_winning_state(next_state, action) -> bool`
@@ -133,7 +143,7 @@ Scans outward from the cell where the last piece landed in four directions — d
   downward from the top until a non-empty cell is found.
 </ParamField>
 
-**Returns:** `bool` — `True` if four consecutive tokens of `self.player` exist through the placed cell.
+**Returns:** `bool` — `True` if four consecutive tokens of `self.player` exist through the placed cell. Internally the check triggers when `count == 3`, meaning 3 additional aligned pieces beyond the placed piece (4 total in a line).
 
 ---
 

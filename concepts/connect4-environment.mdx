@@ -150,7 +150,7 @@ The four direction vectors cover:
 | `[0, 1]`  | Horizontal (→)    |
 | `[1, 0]`  | Vertical (↓)      |
 
-For each direction and each possible split `i` (0–3), the algorithm counts how many consecutive friendly pieces extend in both the positive and negative direction from the played cell. A total `count == 3` (the played piece plus three more) means four-in-a-row.
+For each direction and each possible split `i` (0–3), the algorithm counts how many consecutive friendly neighbor pieces extend in both the positive and negative direction from the played cell `(x, y)`. The piece at `(x, y)` itself is **not** added to `count`, so the win condition `count == 3` means three additional consecutive same-color pieces were found — four pieces in a row in total when the placed piece is included.
 
 The `out_of_bounds` guard prevents index errors at board edges:
 

@@ -56,11 +56,19 @@ class Q_Learning:
 
 ## Instance Attributes
 
-| Attribute | Type | Description |
-|---|---|---|
-| `q_values` | `dict` | The Q-table. Keys are state-action strings (board cells concatenated with the column index); values are `float` Q-scores. Populated lazily — unseen (state, action) pairs default to `0`. |
-| `total_rewards` | `float` | Accumulated reward for the current episode. Reset externally between episodes. |
-| `game_status` | `str` | Game outcome flag read by `take_action()` on its terminal-update call. Set this to `"running"` (default), `"win"`, `"loss"`, or `"draw"` by the game loop before the final `take_action()` call. |
+| Attribute | Type | Initial Value | Description |
+|---|---|---|---|
+| `player` | `int` | from constructor | Player token (`1` or `2`). |
+| `alpha` | `float` | from constructor | Learning rate. |
+| `epsilon` | `float` | from constructor | Exploration rate. |
+| `discount_factor` | `float` | from constructor | Gamma (γ) discount factor. |
+| `r` | `int` | from constructor | Board row count. |
+| `c` | `int` | from constructor | Board column count. |
+| `previous_state` | `list \| None` | `None` | Board state from the previous turn, used to compute the Bellman update. |
+| `previous_action` | `int \| None` | `None` | Column index chosen on the previous turn. |
+| `game_status` | `str` | `"running"` | Outcome flag read during the terminal update call. Set to `"win"`, `"loss"`, or `"draw"` by the game loop before calling `take_action()` one final time. |
+| `total_rewards` | `float` | `0` | Accumulated reward for the current episode. Reset externally between episodes. |
+| `q_values` | `dict` | set via `set_Qvalues()` | Q-table. Keys are state-action strings; values are `float` Q-scores. Unseen pairs default to `0`. |
 
 ---
 
@@ -107,7 +115,7 @@ The primary action method. Its behaviour changes depending on `self.game_status`
 4. Applies the chosen action to the board via gravity.
 5. If the resulting state is terminal, immediately updates `Q(s, a)` with the terminal reward.
 
-**Returns (normal play):**
+**Returns (normal play) — 5-tuple:**
 
 <ResponseField name="next_state" type="list[list[int]]">
   Updated board after the chosen move.
@@ -132,7 +140,7 @@ The primary action method. Its behaviour changes depending on `self.game_status`
 
 **Terminal reward update** (`game_status != "running"`):
 
-When the game loop sets `game_status` to `"win"`, `"loss"`, or `"draw"` and calls `take_action()` one final time, the method updates the Q-value for the last move with the terminal reward and returns:
+When the game loop sets `game_status` to `"win"`, `"loss"`, or `"draw"` and calls `take_action()` one final time, the method updates the Q-value for the last move with the terminal reward and returns a **2-tuple**:
 
 <ResponseField name="state" type="list[list[int]]">
   The board state at termination (unchanged).
@@ -142,20 +150,26 @@ When the game loop sets `game_status` to `"win"`, `"loss"`, or `"draw"` and call
   Always `True` — the game is over.
 </ResponseField>
 
+<Warning>
+  The terminal update path returns only **2 values** (`self.state, True`), not
+  5. Callers that set `game_status` and invoke `take_action()` a final time must
+  not attempt to unpack 5 values from that call.
+</Warning>
+
 **Reward schedule:**
 
 | Outcome | Reward (R) |
 |---|---|
-| Win | `+50` |
+| Win (agent places winning piece) | `+50` |
 | Draw | `-10` |
-| Loss | `-50` |
-| Every other move | `-1` |
+| Loss (`game_status == "loss"`) | `-50` |
+| Every non-terminal move | `-1` |
 
 ---
 
-### `epislon_greedy_policy(next_q) -> int`
+### `epislon_greedy_policy(next_q) -> np.int64`
 
-Selects a column using the epsilon-greedy strategy.
+Selects a column using the epsilon-greedy strategy. Note: the method name preserves a typo from the source (`epislon`, not `epsilon`).
 
 **Parameters**
 
@@ -164,7 +178,7 @@ Selects a column using the epsilon-greedy strategy.
   `-math.inf` to prevent illegal moves.
 </ParamField>
 
-**Returns:** `int` — the chosen column index.
+**Returns:** `np.int64` — the chosen column index.
 
 With probability `epsilon` a valid column is chosen **uniformly at random** (exploration). Otherwise, the column with the highest Q-value is chosen **greedily** (exploitation). Ties among greedy actions are broken randomly.
 
@@ -196,7 +210,7 @@ Returns `(True, "win")` if the last piece created four in a row, `(True, "draw")
 
 ### `is_winning_state(next_state, action) -> bool`
 
-Checks four directions (diagonal, anti-diagonal, horizontal, vertical) from the cell where the last piece landed. Returns `True` if `self.player`'s token appears four times consecutively.
+Checks four directions (diagonal, anti-diagonal, horizontal, vertical) from the cell where the last piece landed. Returns `True` if `self.player`'s token appears four times consecutively (the internal counter reaches `3`, meaning 3 additional pieces in line beyond the placed piece, totalling 4).
 
 ---
 
@@ -266,7 +280,7 @@ for episode in range(50000):
                 player2.game_status = "loss"
             elif result == "draw":
                 player2.game_status = "draw"
-            player2.take_action()   # terminal Q-value update
+            player2.take_action()   # terminal Q-value update — returns 2-tuple
             break
 ```
 

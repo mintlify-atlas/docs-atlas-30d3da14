@@ -67,16 +67,20 @@ agent.set_state(state)
 #   2  → Player 2's piece
 
 game, end, result, action, value = agent.take_action()
-# Returns:
+# Returns (when play_outs > 0 for MCTS, or always for Q_Learning):
 #   game   – updated board (2-D list, r × c)
 #   end    – True if the game is over, False otherwise
 #   result – "win" | "draw" | ".." (still running)
 #   action – column index chosen (0-indexed)
 #   value  – estimated value of the resulting state
 #             (win/N for MCTS, Q-value for Q-Learning)
+
+# Special case — MCTS with play_outs=0 performs a random move and
+# returns only three values (no search is run):
+game, end, result = mcts_agent.take_action()   # play_outs == 0
 ```
 
-`Random_Player`, used only inside MCTS rollouts, follows a slightly simpler variant — its `take_action()` does not return `value` because it does not maintain any value estimate.
+`Random_Player`, used only inside MCTS rollouts, follows a slightly simpler variant — its `take_action()` returns four values `(game, end, result, action)` and does not include a value estimate, because it does not maintain any value function.
 
 ## Key Design Choices
 
@@ -88,12 +92,12 @@ The `Q_Learning` agent stores a Q-value for every `(state, action)` pair as a st
 
 ```python
 def mirror_state_action(self, curr_state, action):
-    str_mirror = ""
+    str_mirror_state_action = ""
     for m in range(self.r):
         for n in range(self.c):
-            str_mirror += str(curr_state[m][self.c - 1 - n])
-    str_mirror += str(self.c - 1 - action)
-    return str_mirror
+            str_mirror_state_action += str(curr_state[m][self.c - 1 - n])
+    str_mirror_state_action += str(self.c - 1 - action)
+    return str_mirror_state_action
 ```
 
 ### UCB1 in MCTS
@@ -121,5 +125,5 @@ The Q-Learning agent uses a fixed reward schedule during training:
 The per-step penalty of `−1` encourages the agent to win as quickly as possible rather than prolonging games.
 
 <Note>
-  The default board size differs between training and the full MCTS vs MCTS game. `train_qlearning()` and `MCTS_vs_Q()` both use a **3 × 5** (or 4 × 5 during training) board, while `MCTS_vs_MCTS()` uses a **6 × 5** board. If you evaluate a Q-table trained on one board size against an MCTS agent running on a different board size, the state keys will not match and performance will degrade significantly.
+  The board size differs across the three routines in `main.py`. `train_qlearning()` uses a **4 × 5** board (rows=4, cols=5), `MCTS_vs_Q()` uses a **3 × 5** board (rows=3, cols=5), and `MCTS_vs_MCTS()` uses a **6 × 5** board. If you evaluate a Q-table trained on one board size against an MCTS agent running on a different board size, the state keys will not match and performance will degrade significantly.
 </Note>

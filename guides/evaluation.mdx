@@ -4,7 +4,7 @@ sidebarTitle: "Evaluation"
 description: "Run MCTS vs MCTS and MCTS vs Q-Learning head-to-head matchups, read per-game action logs, and interpret aggregate win, draw, and loss statistics."
 ---
 
-The project provides two evaluation modes: MCTS vs MCTS and MCTS vs Q-Learning. Both modes print per-turn details — the action chosen, the MCTS visit count or Q-value, and the game outcome — then report aggregate win, draw, and loss statistics at the end of the run.
+The project provides two evaluation modes: MCTS vs MCTS and MCTS vs Q-Learning. Both modes print per-turn details — the action chosen, the MCTS visit count or Q-value, and the game outcome. The MCTS vs Q-Learning mode additionally reports aggregate win, draw, and loss statistics at the end of the 100-game run.
 
 ## Mode 1: MCTS vs MCTS
 
@@ -142,7 +142,7 @@ Draws + P1 accuracy + P2 accuracy = 1.0
 A well-trained Q-Learning agent should push its accuracy above the draw rate and, ideally, above the MCTS win rate over 100 games.
 
 <Note>
-The pre-trained `q_data.dat.gz` was trained on a **4×5 board** against MCTS with `n=40`. The evaluation function uses a **3×5 board**, which tests whether the agent has learned generalizable strategies on a slightly reduced state space. As noted in the source: *"Convergence till n=10 can be tested as Q-Learning is trained against MC10. Higher values can be tested but the results will show slightly less win percentage due to lack of training for higher values."*
+The bundled `q_data.dat.gz` was trained against **MCTS with `n=10`** (MC10), as the source notes: *"Convergence till n=10 can be tested as Q-Learning is trained against MC10. Higher values can be tested but the results will show slightly less win percentage due to lack of training for higher values."* The evaluation function uses a **3×5 board** while `train_qlearning()` trains on a **4×5 board** (`r=4`), so evaluation runs on a slightly smaller state space than training.
 </Note>
 
 ---

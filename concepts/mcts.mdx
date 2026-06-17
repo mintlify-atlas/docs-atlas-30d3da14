@@ -21,7 +21,7 @@ class Node:
         self.state = copy.deepcopy(state)
 
     def update(self, win):
-        if self.win == True:
+        if self.win == True:   # bug: compares int to bool; only True when self.win == 1
             self.win += 1
         self.N += 1
 
@@ -34,9 +34,13 @@ class Node:
 | Field        | Type          | Meaning                                            |
 |--------------|---------------|----------------------------------------------------|
 | `N`          | `int`         | Total number of times this node has been visited   |
-| `win`        | `int`         | Cumulative value: +1 wins, -1 losses, 0 draws      |
+| `win`        | `int`         | Cumulative score updated by `back_propagation`: +1 per win, −1 per loss, 0 per draw |
 | `children`   | `list[Node]`  | Child nodes, one per legal column in this position |
 | `state`      | `list[list]`  | Deep-copied board snapshot at this node            |
+
+<Warning>
+  The `Node.update()` method contains a bug: `if self.win == True` compares an `int` to a `bool`. In Python this expression is only `True` when `self.win == 1`, so the conditional increment fires only in that one case. In practice `back_propagation()` never calls `update()` — it writes directly to `node.N` and `node.win` — making `update()` effectively dead code. The win-accumulation logic lives entirely in `back_propagation()`.
+</Warning>
 
 ## UCB1 Formula
 

@@ -64,7 +64,7 @@ The Q-table key encodes the entire board state as a string of cell values (`0`, 
 |-------|-------|--------------------|
 | 3×5 | 15 | 3¹⁵ ≈ 14 million |
 | 4×5 | 20 | 3²⁰ ≈ 3.5 billion |
-| 6×5 | 30 | 3³⁰ ≈ 200 billion |
+| 6×5 | 30 | 3³⁰ ≈ 205 trillion |
 
 In practice, most of those states are unreachable. Mirror symmetry also halves the effective table size: `Q_Learning.mirror_state_action()` maps each board position to its horizontal reflection and stores a single shared Q-value for both, cutting memory roughly in half.
 
