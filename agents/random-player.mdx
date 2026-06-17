@@ -1,0 +1,191 @@
+---
+title: "Random Player: Baseline Agent for MCTS Simulations"
+sidebarTitle: "Random Player"
+description: "Reference for the Random_Player class: constructor parameters, take_action return values, and its role as the MCTS rollout policy during simulation."
+---
+
+`Random_Player` is a baseline agent that picks uniformly at random from all valid (non-full) columns on every turn. The `MCTS` agent uses two `Random_Player` instances internally during its simulation (playout) phase — one for each player — to play games out to completion from an expanded node. Because the rollout policy is intentionally simple, all strategic strength in MCTS comes from the tree search itself rather than from the simulations.
+
+## Class: `Random_Player`
+
+```python
+class Random_Player:
+    def __init__(self, player, r, c):
+        ...
+```
+
+### Constructor Parameters
+
+<ParamField path="player" type="int" required>
+  Player token this instance represents — `1` or `2`. Used when placing pieces
+  and when checking whether a winning state belongs to this player.
+</ParamField>
+
+<ParamField path="r" type="int" required>
+  Number of rows in the board. Pieces fall to the lowest empty row in each
+  column (gravity), so `r` is needed to find the correct cell.
+</ParamField>
+
+<ParamField path="c" type="int" required>
+  Number of columns in the board. Determines the action space size and bounds
+  used in win-detection.
+</ParamField>
+
+---
+
+## Methods
+
+### `set_state(state)`
+
+Loads the current board into the agent. Must be called before `take_action()`.
+
+**Parameters**
+
+<ParamField path="state" type="list[list[int]]">
+  A 2D list of shape `[r][c]`. Cells hold `0` (empty), `1` (player 1's piece),
+  or `2` (player 2's piece). The agent modifies this list in-place when a piece
+  is placed.
+</ParamField>
+
+**Returns:** `None`
+
+---
+
+### `take_action() -> tuple`
+
+Selects a column uniformly at random from all non-full columns, drops the agent's piece via gravity to the lowest empty row, then checks whether the game has ended.
+
+**Returns:**
+
+<ResponseField name="state" type="list[list[int]]">
+  The updated board after the piece has been placed. Modified in-place from the
+  list provided to `set_state()`.
+</ResponseField>
+
+<ResponseField name="end" type="bool">
+  `True` if the game is now over (win or draw); `False` if play continues.
+</ResponseField>
+
+<ResponseField name="result" type="str">
+  `"win"` if this agent just completed four in a row, `"draw"` if all columns
+  are full with no winner, or `".."` if the game is still in progress.
+</ResponseField>
+
+<ResponseField name="action" type="int">
+  Column index (0-based) that was chosen.
+</ResponseField>
+
+---
+
+### `random_action() -> int`
+
+Samples a single column index uniformly from all columns whose top cell (`state[0][i]`) is empty. Full columns receive a probability weight of `0` and are excluded.
+
+**Returns:** `int` (specifically `numpy.int64`) — the chosen column index.
+
+```python
+# Internally uses numpy's random.choices with a uniform distribution
+# over valid columns. Full columns are given weight 0.
+action = random.choices(actions, probabilities, k=1)
+return np.int64(action[0])
+```
+
+<Note>
+  `random_action()` is also used directly by `MCTS.take_action()` when
+  `play_outs=0`. The logic is identical in both classes.
+</Note>
+
+---
+
+### `is_terminal_state(next_state, action) -> tuple[bool, str]`
+
+Checks whether the board has reached a terminal condition after the most recent move.
+
+**Parameters**
+
+<ParamField path="next_state" type="list[list[int]]">
+  Board state to evaluate.
+</ParamField>
+
+<ParamField path="action" type="int">
+  Column index of the piece just placed. Used to anchor the win-check scan.
+</ParamField>
+
+**Returns:**
+- `(True, "win")` — the piece just placed completed four in a row.
+- `(True, "draw")` — all columns are full with no winner.
+- `(False, "..")` — the game is still in progress.
+
+---
+
+### `is_winning_state(next_state, action) -> bool`
+
+Scans outward from the cell where the last piece landed in four directions — diagonal `[1,1]`, anti-diagonal `[1,-1]`, horizontal `[0,1]`, and vertical `[1,0]` — counting consecutive tokens belonging to `self.player`.
+
+**Parameters**
+
+<ParamField path="next_state" type="list[list[int]]">
+  Board state to scan.
+</ParamField>
+
+<ParamField path="action" type="int">
+  Column index of the last piece. The row is located automatically by scanning
+  downward from the top until a non-empty cell is found.
+</ParamField>
+
+**Returns:** `bool` — `True` if four consecutive tokens of `self.player` exist through the placed cell.
+
+---
+
+## Usage Example
+
+```python
+import numpy as np
+from RandomPlayer import Random_Player
+
+# Initialise a blank 6×5 board
+game = np.zeros((6, 5), dtype=int)
+
+# Create a random player for player 1
+player = Random_Player(player=1, r=6, c=5)
+player.set_state(game)
+
+game, end, result, action = player.take_action()
+print(f"Random player chose column {action}, game ended: {end}")
+# e.g. → Random player chose column 3, game ended: False
+```
+
+To simulate a full random game between two `Random_Player` instances:
+
+```python
+import numpy as np
+from RandomPlayer import Random_Player
+
+game = np.zeros((6, 5), dtype=int)
+p1 = Random_Player(player=1, r=6, c=5)
+p2 = Random_Player(player=2, r=6, c=5)
+
+turn = 1
+while True:
+    if turn == 1:
+        p1.set_state(game)
+        game, end, result, action = p1.take_action()
+    else:
+        p2.set_state(game)
+        game, end, result, action = p2.take_action()
+
+    if end:
+        winner = f"Player {turn}" if result == "win" else "Draw"
+        print(f"Game over — {winner}")
+        break
+
+    turn = 2 if turn == 1 else 1
+```
+
+<Info>
+  `Random_Player` is not intended for standalone use as a competitive agent. It
+  serves as the rollout policy inside MCTS simulations and can be used to
+  benchmark the quality of MCTS and Q-Learning agents — if either agent cannot
+  beat a random opponent reliably, something is wrong with the configuration or
+  training procedure.
+</Info>

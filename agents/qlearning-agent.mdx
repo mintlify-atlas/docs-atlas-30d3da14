@@ -1,0 +1,278 @@
+---
+title: "Q-Learning Agent API Reference for Connect 4"
+sidebarTitle: "Q-Learning Agent"
+description: "Reference for the Q_Learning class: constructor parameters, Q-table management, epsilon-greedy policy, Bellman updates, and take_action return values."
+---
+
+The `Q_Learning` class implements a tabular Q-Learning agent for Connect 4. It maintains a dictionary-based Q-table keyed by serialized (state, action) strings and updates Q-values via the Bellman equation after each move. Mirror symmetry of the board is exploited automatically to halve the effective table size, and the agent supports both online training (against an MCTS opponent) and zero-update evaluation of a pre-trained Q-table.
+
+## Class: `Q_Learning`
+
+```python
+class Q_Learning:
+    def __init__(self, player, alpha, discount_factor, epsilon, r, c):
+        ...
+```
+
+### Constructor Parameters
+
+<ParamField path="player" type="int" required>
+  Player token this agent represents — `1` or `2`. Used when placing pieces on
+  the board and when checking winning states.
+</ParamField>
+
+<ParamField path="alpha" type="float" required>
+  Learning rate controlling how aggressively Q-values are updated. Set to `0`
+  during evaluation (no learning) or `0.6` during training. The Bellman update
+  applied each step is:
+
+  ```
+  Q(s,a) ← Q(s,a) + α · (R + γ · max Q(s',a') − Q(s,a))
+  ```
+</ParamField>
+
+<ParamField path="discount_factor" type="float" required>
+  Gamma (γ) — how much future rewards are weighted relative to immediate
+  rewards. A value of `0.8` is used during training. Set to any value when
+  `alpha=0` as it has no effect.
+</ParamField>
+
+<ParamField path="epsilon" type="float" required>
+  Exploration rate for the epsilon-greedy policy. `0` means fully greedy
+  (always pick the highest Q-value action); `0.1` during training allows
+  occasional random exploration of non-greedy columns.
+</ParamField>
+
+<ParamField path="r" type="int" required>
+  Number of rows in the board. The training setup in `main.py` uses `r=4` for
+  faster convergence; the evaluation setup uses `r=3`.
+</ParamField>
+
+<ParamField path="c" type="int" required>
+  Number of columns in the board. Both training and evaluation use `c=5`.
+</ParamField>
+
+---
+
+## Instance Attributes
+
+| Attribute | Type | Description |
+|---|---|---|
+| `q_values` | `dict` | The Q-table. Keys are state-action strings (board cells concatenated with the column index); values are `float` Q-scores. Populated lazily — unseen (state, action) pairs default to `0`. |
+| `total_rewards` | `float` | Accumulated reward for the current episode. Reset externally between episodes. |
+| `game_status` | `str` | Game outcome flag read by `take_action()` on its terminal-update call. Set this to `"running"` (default), `"win"`, `"loss"`, or `"draw"` by the game loop before the final `take_action()` call. |
+
+---
+
+## Methods
+
+### `set_Qvalues(q_values)`
+
+Loads a pre-existing Q-table into the agent. Must be called before `take_action()` in evaluation mode; during training, pass an empty `{}` dict to start fresh.
+
+**Parameters**
+
+<ParamField path="q_values" type="dict">
+  A dictionary mapping state-action strings to float Q-values. Typically
+  loaded from a pickle file (see usage example below).
+</ParamField>
+
+**Returns:** `None`
+
+---
+
+### `set_state(state)`
+
+Loads the current board so `take_action()` can read it. Must be called at the start of every turn.
+
+**Parameters**
+
+<ParamField path="state" type="list[list[int]]">
+  A 2D list of shape `[r][c]`. Cells hold `0` (empty), `1`, or `2`.
+</ParamField>
+
+**Returns:** `None`
+
+---
+
+### `take_action() -> tuple`
+
+The primary action method. Its behaviour changes depending on `self.game_status`:
+
+**During normal play** (`game_status == "running"`):
+
+1. Serialises the current board and looks up (or initialises) Q-values for every valid column.
+2. Applies the Bellman update for the *previous* move using the current state as `s'`.
+3. Selects an action via `epislon_greedy_policy()`.
+4. Applies the chosen action to the board via gravity.
+5. If the resulting state is terminal, immediately updates `Q(s, a)` with the terminal reward.
+
+**Returns (normal play):**
+
+<ResponseField name="next_state" type="list[list[int]]">
+  Updated board after the chosen move.
+</ResponseField>
+
+<ResponseField name="is_terminal" type="bool">
+  `True` if the game ended on this move.
+</ResponseField>
+
+<ResponseField name="result" type="str">
+  `"win"`, `"draw"`, or `".."`.
+</ResponseField>
+
+<ResponseField name="action" type="int">
+  Column index (0-based) chosen by the agent.
+</ResponseField>
+
+<ResponseField name="q_value" type="float">
+  `Q(s, a)` for the chosen action at the current state — reflects the agent's
+  estimated value of the move.
+</ResponseField>
+
+**Terminal reward update** (`game_status != "running"`):
+
+When the game loop sets `game_status` to `"win"`, `"loss"`, or `"draw"` and calls `take_action()` one final time, the method updates the Q-value for the last move with the terminal reward and returns:
+
+<ResponseField name="state" type="list[list[int]]">
+  The board state at termination (unchanged).
+</ResponseField>
+
+<ResponseField name="True" type="bool">
+  Always `True` — the game is over.
+</ResponseField>
+
+**Reward schedule:**
+
+| Outcome | Reward (R) |
+|---|---|
+| Win | `+50` |
+| Draw | `-10` |
+| Loss | `-50` |
+| Every other move | `-1` |
+
+---
+
+### `epislon_greedy_policy(next_q) -> int`
+
+Selects a column using the epsilon-greedy strategy.
+
+**Parameters**
+
+<ParamField path="next_q" type="list[float]">
+  A list of Q-values, one per column. Full columns have their entry set to
+  `-math.inf` to prevent illegal moves.
+</ParamField>
+
+**Returns:** `int` — the chosen column index.
+
+With probability `epsilon` a valid column is chosen **uniformly at random** (exploration). Otherwise, the column with the highest Q-value is chosen **greedily** (exploitation). Ties among greedy actions are broken randomly.
+
+---
+
+### `mirror_state_action(curr_state, action) -> str`
+
+Computes the Q-table key for the horizontally mirrored board and the correspondingly flipped column index. This symmetry means the agent never needs to store a state and its mirror separately — they always share the same Q-value entry.
+
+**Parameters**
+
+<ParamField path="curr_state" type="list[list[int]]">
+  The board to mirror.
+</ParamField>
+
+<ParamField path="action" type="int">
+  The column index to flip: the mirrored action is `c - 1 - action`.
+</ParamField>
+
+**Returns:** `str` — concatenation of the mirrored board cells followed by the mirrored column index.
+
+---
+
+### `is_terminal_state(next_state, action) -> tuple[bool, str]`
+
+Returns `(True, "win")` if the last piece created four in a row, `(True, "draw")` if all columns are full, or `(False, "..")` otherwise.
+
+---
+
+### `is_winning_state(next_state, action) -> bool`
+
+Checks four directions (diagonal, anti-diagonal, horizontal, vertical) from the cell where the last piece landed. Returns `True` if `self.player`'s token appears four times consecutively.
+
+---
+
+## Usage Example (Evaluation)
+
+```python
+import pickle
+import gzip
+import shutil
+import numpy as np
+from QLearning import Q_Learning
+
+# Decompress and load the pre-trained Q-table
+with gzip.open('q_data.dat.gz', 'rb') as f_in:
+    with open('q_data.dat', 'wb') as f_out:
+        shutil.copyfileobj(f_in, f_out)
+
+with open('q_data.dat', 'rb') as handle:
+    q_values = pickle.load(handle)
+
+# Build agent: alpha=0 and epsilon=0 for pure greedy evaluation
+game = np.zeros((3, 5), dtype=int)
+agent = Q_Learning(player=2, alpha=0, discount_factor=0.8, epsilon=0, r=3, c=5)
+agent.set_Qvalues(q_values)
+agent.set_state(game)
+
+next_state, end, result, action, value = agent.take_action()
+print(f"Q-Learning agent chose column {action} (Q={value:.4f})")
+```
+
+<Warning>
+  Always set `alpha=0` **and** `epsilon=0` when evaluating a pre-trained agent.
+  If either is non-zero, `take_action()` will keep mutating the loaded Q-table
+  in-place, silently degrading the policy across evaluation episodes.
+</Warning>
+
+## Usage Example (Training)
+
+```python
+import numpy as np
+from MCTS import MCTS
+from QLearning import Q_Learning
+
+q_values = {}   # start with an empty Q-table
+rows, cols = 4, 5
+
+for episode in range(50000):
+    game = np.zeros((rows, cols), dtype=int)
+    player1 = MCTS(play_outs=40, player=1, C=2, r=rows, c=cols)
+    player2 = Q_Learning(player=2, alpha=0.6, discount_factor=0.8,
+                          epsilon=0.1, r=rows, c=cols)
+    player2.set_Qvalues(q_values)
+
+    turn = 0
+    while True:
+        if turn == 0:
+            player1.set_state(game)
+            game, end, result, last_action, value = player1.take_action()
+            turn = 1
+        else:
+            player2.set_state(game)
+            game, end, result, last_action, value = player2.take_action()
+            turn = 0
+
+        if end:
+            if turn == 1 and result == "win":
+                player2.game_status = "loss"
+            elif result == "draw":
+                player2.game_status = "draw"
+            player2.take_action()   # terminal Q-value update
+            break
+```
+
+<Tip>
+  Training is done on a smaller board (`r=4`, `c=5`) for faster convergence.
+  The resulting Q-table is then tested on a 3-row board via `MCTS_vs_Q()` in
+  `main.py`. Larger boards can be trained but require significantly more
+  episodes.
+</Tip>

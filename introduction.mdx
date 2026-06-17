@@ -1,0 +1,125 @@
+---
+title: "Q-Learning & MCTS: Reinforcement Learning for Connect 4"
+sidebarTitle: "Introduction"
+description: "Explore two reinforcement learning agents—Monte Carlo Tree Search and Q-Learning—that learn to play Connect 4 on a fully configurable board."
+---
+
+This project implements two reinforcement learning agents that play Connect 4 against each other on a configurable grid. Built entirely in Python, it lets researchers and students experiment with **Monte Carlo Tree Search (MCTS)** and **Q-Learning** side by side — training Q-Learning from scratch against an MCTS opponent, evaluating the trained agent, or watching two MCTS agents compete head-to-head with different playout budgets.
+
+## Project Overview
+
+The project contains two distinct AI strategies, each packaged as a self-contained agent class:
+
+| Agent | Strategy | Key hyperparameters |
+|-------|----------|---------------------|
+| `MCTS` | Tree search with random rollouts guided by UCB1 | `play_outs`, `C` (exploration constant) |
+| `Q_Learning` | Tabular Q-Learning with ε-greedy exploration | `alpha`, `discount_factor`, `epsilon` |
+
+Both agents play Connect 4 on an **r × c grid** (rows × columns). The board dimensions are passed at construction time, so the same code supports anything from a compact 3 × 5 training board to the full 6 × 5 match layout. The win condition is four-in-a-row in any direction — horizontal, vertical, or diagonal.
+
+## Architecture Overview
+
+The project is organized across four Python modules, each with a focused responsibility:
+
+<CardGroup cols={2}>
+  <Card title="MCTS.py" icon="tree">
+    Defines the `Node` class (visit count, win score, children) and the `MCTS` agent. Implements the full four-phase loop — **selection**, **expansion**, **simulation**, and **back-propagation** — plus a lightweight `construct_tree` pre-builder that seeds the first four plies before playouts begin.
+  </Card>
+  <Card title="QLearning.py" icon="table">
+    Defines the `Q_Learning` agent. Stores Q-values in a plain Python dictionary keyed by a flattened board-plus-action string. Applies **mirror symmetry** to halve the effective state space and uses an **ε-greedy policy** for exploration during training.
+  </Card>
+  <Card title="RandomPlayer.py" icon="shuffle">
+    Defines `Random_Player`, a uniform-random baseline agent. Used internally by `MCTS` during the simulation (rollout) phase — every playout is completed by two `Random_Player` instances playing to the end of the game.
+  </Card>
+  <Card title="main.py" icon="terminal">
+    Entry point and orchestration layer. Exposes three top-level routines — `MCTS_vs_MCTS`, `MCTS_vs_Q`, and `train_qlearning` — and presents a simple numbered CLI menu so you can choose a matchup without editing code.
+  </Card>
+</CardGroup>
+
+## Quickstart & Further Reading
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Install dependencies, clone the repo, and run your first agent matchup in minutes.
+  </Card>
+  <Card title="MCTS Concepts" icon="sitemap" href="/concepts/mcts">
+    Deep-dive into selection, expansion, simulation, back-propagation, and the UCB1 formula.
+  </Card>
+  <Card title="Q-Learning Concepts" icon="graduation-cap" href="/concepts/qlearning">
+    Understand the Bellman update, ε-greedy exploration, and mirror-symmetry state encoding.
+  </Card>
+  <Card title="MCTS Agent Reference" icon="code" href="/agents/mcts-agent">
+    Full constructor signature, method descriptions, and configuration examples for the `MCTS` class.
+  </Card>
+</CardGroup>
+
+## Shared Agent Interface
+
+Both `MCTS` and `Q_Learning` expose the same two-method interface, which lets `main.py` swap agents in and out of the game loop without any conditional logic.
+
+```python
+# Every agent in the project follows this interface:
+
+agent.set_state(state)
+# Accepts a 2-D list (r × c) of integers:
+#   0  → empty cell
+#   1  → Player 1's piece
+#   2  → Player 2's piece
+
+game, end, result, action, value = agent.take_action()
+# Returns:
+#   game   – updated board (2-D list, r × c)
+#   end    – True if the game is over, False otherwise
+#   result – "win" | "draw" | ".." (still running)
+#   action – column index chosen (0-indexed)
+#   value  – estimated value of the resulting state
+#             (win/N for MCTS, Q-value for Q-Learning)
+```
+
+`Random_Player`, used only inside MCTS rollouts, follows a slightly simpler variant — its `take_action()` does not return `value` because it does not maintain any value estimate.
+
+## Key Design Choices
+
+### Configurable Board (r × c)
+Every agent constructor accepts `r` (rows) and `c` (columns) as explicit arguments. There is no hardcoded board size anywhere in the agent classes themselves — they derive all loop bounds from `self.r` and `self.c`. This makes it straightforward to train on a smaller board and then test on a larger one.
+
+### Mirror Symmetry in Q-Learning
+The `Q_Learning` agent stores a Q-value for every `(state, action)` pair as a string key. Whenever a new `(state, action)` pair is first encountered, `take_action()` automatically looks up its horizontal mirror — reversing the column order of the board and inverting the action column index — and shares the same Q-value entry. This effectively halves the number of unique states the table must learn, accelerating convergence.
+
+```python
+def mirror_state_action(self, curr_state, action):
+    str_mirror = ""
+    for m in range(self.r):
+        for n in range(self.c):
+            str_mirror += str(curr_state[m][self.c - 1 - n])
+    str_mirror += str(self.c - 1 - action)
+    return str_mirror
+```
+
+### UCB1 in MCTS
+During the selection phase, the MCTS agent picks the child node with the highest **UCB1** score. Unvisited children are always explored first (chosen at random from the pool of zero-visit nodes). Once all children have been visited at least once, UCB1 balances exploitation of high win-rate nodes against exploration of infrequently visited ones:
+
+```
+UCB1 = win/N + C × sqrt(ln(N_parent) / N_child)
+```
+
+The exploration constant `C` defaults to `2` in all matchups.
+
+### Persistent Q-Table Storage
+After training, `train_qlearning()` serializes the Q-value dictionary with `pickle` and compresses it with `gzip`, producing `q_data.dat.gz`. The evaluation routine `MCTS_vs_Q()` decompresses the file at runtime and injects the loaded table into a fresh `Q_Learning` instance via `player2.set_Qvalues(q_values)`. This means you can train once and evaluate many times without re-running the 50,000-episode loop.
+
+### Reward Schedule
+The Q-Learning agent uses a fixed reward schedule during training:
+
+| Outcome | Reward |
+|---------|--------|
+| Win | `+50` |
+| Draw | `−10` |
+| Loss | `−50` |
+| Every other step | `−1` |
+
+The per-step penalty of `−1` encourages the agent to win as quickly as possible rather than prolonging games.
+
+<Note>
+  The default board size differs between training and the full MCTS vs MCTS game. `train_qlearning()` and `MCTS_vs_Q()` both use a **3 × 5** (or 4 × 5 during training) board, while `MCTS_vs_MCTS()` uses a **6 × 5** board. If you evaluate a Q-table trained on one board size against an MCTS agent running on a different board size, the state keys will not match and performance will degrade significantly.
+</Note>

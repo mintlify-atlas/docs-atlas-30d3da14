@@ -1,0 +1,80 @@
+{
+  "projectType": "ai-ml",
+  "projectName": "Q-Learning & MCTS for Connect 4",
+  "projectDescription": "Reinforcement learning agents that play Connect 4 using Monte Carlo Tree Search (MCTS) and Q-Learning, with support for head-to-head agent evaluation and self-play training.",
+  "theme": "palm",
+  "primaryColor": "#4F46E5",
+  "lightColor": "#818CF8",
+  "darkColor": "#3730A3",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart"
+            ]
+          },
+          {
+            "group": "Concepts",
+            "pages": [
+              "concepts/connect4-environment",
+              "concepts/mcts",
+              "concepts/qlearning"
+            ]
+          },
+          {
+            "group": "Agents",
+            "pages": [
+              "agents/mcts-agent",
+              "agents/qlearning-agent",
+              "agents/random-player"
+            ]
+          },
+          {
+            "group": "Training & Evaluation",
+            "pages": [
+              "guides/training",
+              "guides/evaluation",
+              "guides/hyperparameters"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Monte Carlo Tree Search agent with UCB1-guided selection and random playout simulation",
+    "Q-Learning agent with epsilon-greedy exploration and mirror-state symmetry optimization",
+    "Configurable board dimensions (rows × columns) for both agents",
+    "MCTS vs MCTS head-to-head evaluation with configurable playout counts",
+    "MCTS vs Q-Learning evaluation using pretrained Q-value tables",
+    "Q-Learning training loop against MCTS opponent with reward shaping",
+    "Persistent Q-value storage via gzip-compressed pickle files",
+    "Moving average reward plotting with matplotlib",
+    "Random baseline player for simulations and benchmarking"
+  ],
+  "publicApiSurface": [
+    "MCTS(play_outs, player, C=2, r=6, c=5)",
+    "MCTS.set_state(state)",
+    "MCTS.take_action() -> (state, end, result, action, value)",
+    "MCTS.is_terminal_state(next_state, action) -> (bool, str)",
+    "MCTS.is_winning_state(next_state, action) -> bool",
+    "Q_Learning(player, alpha, discount_factor, epsilon, r, c)",
+    "Q_Learning.set_Qvalues(q_values)",
+    "Q_Learning.set_state(state)",
+    "Q_Learning.take_action() -> (state, end, result, action, value)",
+    "Q_Learning.epislon_greedy_policy(next_q) -> action",
+    "Q_Learning.mirror_state_action(curr_state, action) -> str",
+    "Random_Player(player, r, c)",
+    "Random_Player.set_state(state)",
+    "Random_Player.take_action() -> (state, end, result, action)",
+    "main() — CLI entry point: choose MCTS vs MCTS or MCTS vs Q-Learning",
+    "MCTS_vs_MCTS(x, y) — run MCTS agent matchup",
+    "MCTS_vs_Q() — evaluate pretrained Q-Learning agent against MCTS",
+    "train_qlearning() — train Q-Learning agent against MCTS with 50,000 episodes"
+  ]
+}

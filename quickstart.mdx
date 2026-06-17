@@ -1,47 +1,226 @@
 ---
-title: "Quickstart"
-description: "Begin with a guide on the fastest path to a successful outcome"
+title: "Get Started with Q-Learning & MCTS for Connect 4"
+sidebarTitle: "Quickstart"
+description: "Run your first MCTS vs MCTS matchup, evaluate a trained Q-Learning agent, and train a new Q-table from scratch — all in under ten minutes."
 ---
 
-Describe how someone begins using your product. What is the first thing they need to do? Are there any prerequisites?
-
-A quickstart should take someone from zero to using your product. They'll get a quick win and a sense of what they can accomplish.
-
-## Prerequisites
-
-Before you begin, you must have:
-
-- Requirement one (for example, Node.js 18+, a free account, an API key)
-- Requirement two (for example, a compatible device, a compatible browser, a compatible operating system)
-
-## Get started
+This guide walks you through everything needed to run agent matchups and train a Q-Learning agent against an MCTS opponent. By the end you will have watched two MCTS agents play a full game of Connect 4, evaluated a pre-trained Q-Learning agent against MCTS, and optionally kicked off a fresh 50,000-episode training run that produces a new `q_data.dat.gz` Q-table and a reward convergence plot.
 
 <Steps>
-  <Step title="Install">
-    Describe how to install your product or sign up.
 
-    ```bash
-    npm install your-package
-    ```
-  </Step>
-  <Step title="Configure">
-    Describe any setup or configuration needed before first use.
+<Step title="Prerequisites">
 
-    ```bash
-    your-cli init
-    ```
-  </Step>
-  <Step title="Run it">
-    Show the first thing a user does to see it working.
+You need **Python 3.8 or higher** and three third-party packages. No other dependencies are required — the project uses only the standard library plus NumPy, pandas, and Matplotlib.
 
-    ```bash
-    your-cli start
-    ```
-  </Step>
-</Steps>
+```bash
+pip install numpy pandas matplotlib
+```
+
+Verify that the packages are available:
+
+```bash
+python -c "import numpy, pandas, matplotlib; print('All dependencies found.')"
+```
+
+</Step>
+
+<Step title="Clone the Repository">
+
+Clone the project from GitHub and change into the project directory:
+
+```bash
+git clone https://github.com/marshalharman/QLearning_and_MCTS-Reinforcement_Learning.git
+cd QLearning_and_MCTS-Reinforcement_Learning
+```
+
+The directory should contain the following files:
+
+```text
+.
+├── main.py
+├── MCTS.py
+├── QLearning.py
+├── RandomPlayer.py
+└── q_data.dat.gz     ← pre-trained Q-table (required for evaluation)
+```
+
+</Step>
+
+<Step title="Run MCTS vs MCTS">
+
+Start the program and choose option **1** to pit two MCTS agents against each other on a 6 × 5 board. You will be prompted to set the playout budget for each player independently.
+
+```bash
+python main.py
+```
+
+The CLI interaction looks like this:
+
+```text
+Choose from the following:
+ 1. MCTS agent vs MCTS agent
+ 2. MCTS agent vs Q-Learning agent
+1
+Enter number of playouts for player 1:
+50
+Enter number of playouts for player 2:
+50
+```
+
+After every move the agent prints a brief summary and then displays the final board when the game ends:
+
+```text
+0
+Player1(MCTS with 50 playouts)
+Action selected : 2
+Total playouts for next state: 50
+Value of next state according to MCTS : 0.34
+
+Player2(MCTS with 50 playouts)
+Action selected : 3
+Total playouts for next state: 50
+Value of next state according to MCTS : 0.41
+
+...
+
+PLAYER 1 WINS :
+0 0 0 0 0
+0 0 0 0 0
+0 0 2 0 0
+0 1 2 0 0
+0 1 2 0 0
+1 1 1 1 0
+```
+
+Each line of output contains:
+- **Action selected** — the column index (0-indexed) where the piece was dropped.
+- **Total playouts for next state** — the playout budget the *other* agent will use on the resulting board.
+- **Value of next state according to MCTS** — the win ratio (`win / N`) of the chosen child node.
 
 <Tip>
-  Give people a way to get help. This could be a link to a support page, a chat with a customer support agent, or a forum for your product.
-
-  Example: Need help? Reach out to us at [support@yourcompany.com](mailto:support@yourcompany.com).
+  More playouts give MCTS a stronger search but increase per-move time roughly linearly. A budget of **10–20 playouts** is fast enough for interactive experimentation; **100+** starts to show noticeably stronger play. For a fair benchmark, set both players to the same value first, then try asymmetric budgets (e.g., 10 vs 100) to observe the skill gap.
 </Tip>
+
+</Step>
+
+<Step title="Evaluate Q-Learning Against MCTS">
+
+From the top-level menu choose option **2**, then option **2** again to run the pre-trained Q-Learning agent against an MCTS opponent for 100 test episodes on a 3 × 5 board.
+
+```text
+Choose from the following:
+ 1. MCTS agent vs MCTS agent
+ 2. MCTS agent vs Q-Learning agent
+2
+Choose from the following:
+ 1. Train Q-Learning against MCTS agent
+ 2. Test Q-Learning against MCTS
+2
+```
+
+This routine loads `q_data.dat.gz` from the current directory, decompresses it into `q_data.dat`, and injects the Q-table into a fresh `Q_Learning` instance. After all 100 episodes it prints aggregate statistics:
+
+```text
+Draws: 0.12
+Accuracy of P1, MCTS10: 0.54
+Accuracy of P2, Q_Learning: 0.34
+Convergence till n = 10 can be tested as q learning is trained against MC10.
+Higher values can be tested but the results will show slightly less win percentage
+due to lack of training for higher values.
+Currently, the number rows is set to: 3
+```
+
+During each episode, every move is also logged:
+
+```text
+Player 1 (MCTS with 10 playouts
+Action selected : 1
+Value of next state according to MCTS : 0.28
+
+Player 2 (Q-learning)
+Action selected : 2
+Value of next state : -1.0
+```
+
+<Note>
+  This step requires `q_data.dat.gz` to be present in the working directory. The file is included in the repository. If it is missing (for example after running `train_qlearning()` with a different board size), re-clone the repo or complete Step 5 below to generate a new one.
+</Note>
+
+</Step>
+
+<Step title="Train Q-Learning from Scratch">
+
+From the top-level menu choose option **2**, then option **1** to start a full training run. The agent plays **50,000 episodes** as Player 2 against an MCTS opponent (40 playouts) on a 4 × 5 board.
+
+```text
+Choose from the following:
+ 1. MCTS agent vs MCTS agent
+ 2. MCTS agent vs Q-Learning agent
+2
+Choose from the following:
+ 1. Train Q-Learning against MCTS agent
+ 2. Test Q-Learning against MCTS
+1
+```
+
+The episode counter prints to stdout so you can track progress:
+
+```text
+0
+P1 win
+1
+P2 win
+2
+Draw
+...
+49999
+P2 win
+```
+
+Training uses the following hyperparameters (set in `main.py`):
+
+```python
+num_iterations    = 50000   # total training episodes
+n                 = 40      # MCTS playout budget for the opponent
+C_MCTS            = 2       # UCB1 exploration constant
+r, c              = 4, 5    # board dimensions (rows × columns)
+
+# Q-Learning agent hyperparameters:
+alpha             = 0.6     # learning rate
+discount_factor   = 0.8     # future-reward discount (γ)
+epsilon           = 0.1     # random-exploration probability
+```
+
+When training finishes, two files are written to the working directory:
+
+| File | Contents |
+|------|----------|
+| `q_data.dat.gz` | Compressed, pickled Q-value dictionary — load this for evaluation |
+| `MCTSvsQ.jpg` | 1000-episode moving-average reward convergence plot |
+
+<Note>
+  Training overwrites any existing `q_data.dat.gz` in the current directory. If you want to preserve a previous Q-table, move or rename it before starting a new training run. The reward plot `MCTSvsQ.jpg` is also overwritten on each run.
+</Note>
+
+</Step>
+
+</Steps>
+
+## Next Steps
+
+Once you have the basics running, here are a few directions to explore:
+
+<CardGroup cols={2}>
+  <Card title="Tune MCTS Playouts" icon="sliders">
+    Try asymmetric playout budgets in `MCTS_vs_MCTS` (e.g., 10 vs 200) to quantify how much each additional playout is worth.
+  </Card>
+  <Card title="Adjust the Reward Schedule" icon="coins">
+    Experiment with the win/draw/loss/step rewards in `QLearning.py` (`+50`, `−10`, `−50`, `−1`) to see whether different incentives change convergence speed or final win rate.
+  </Card>
+  <Card title="Change the Board Size" icon="table-cells">
+    Pass different `r` and `c` values in `train_qlearning()` and `MCTS_vs_Q()` to explore how board dimensions affect Q-table size and training time.
+  </Card>
+  <Card title="Swap in a Random Baseline" icon="shuffle">
+    Replace one agent with a `Random_Player` instance directly in `main.py` to establish a lower-bound baseline for both MCTS and Q-Learning win rates.
+  </Card>
+</CardGroup>

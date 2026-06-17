@@ -1,0 +1,124 @@
+---
+title: "Training the Q-Learning Agent Against an MCTS Opponent"
+sidebarTitle: "Training"
+description: "Run 50,000 self-play episodes where Q-Learning trains against MCTS, monitor convergence via a reward plot, and save the resulting Q-table to disk."
+---
+
+The `train_qlearning()` function runs 50,000 self-play episodes where a Q-Learning agent (player 2) learns by playing against an MCTS agent (player 1). Each episode starts from a clean board, and the Q-table grows incrementally across all episodes. Once all episodes complete, the Q-table is serialised to disk in both raw and compressed form.
+
+## Training Setup
+
+All key hyperparameters are declared at the top of `train_qlearning()` in `main.py`:
+
+| Parameter | Value | Role |
+|-----------|-------|------|
+| `r` | 4 | Board rows |
+| `c` | 5 | Board columns |
+| `num_iterations` | 50,000 | Total training episodes |
+| `n` (MCTS playouts) | 40 | Strength of the MCTS opponent per move |
+| `C_MCTS` | 2 | UCB1 exploration constant for MCTS |
+| `alpha` | 0.6 | Q-Learning rate |
+| `discount_factor` | 0.8 | Gamma — discount on future rewards |
+| `epsilon` | 0.1 | ε-greedy exploration probability |
+
+The board is a 4-row × 5-column variant of Connect 4. Both agents are re-instantiated each episode, but the shared `q_values` dict is passed by reference so Q-table updates persist across the entire run.
+
+## The Training Loop
+
+The loop in `main.py` follows a standard alternating-turn structure:
+
+```python
+# From main.py train_qlearning()
+for i in range(num_iterations):
+    game = np.zeros((r, c)).astype(int)
+    player1 = MCTS(n, 1, 2, r, c)
+    player2 = Q_Learning(2, 0.6, 0.8, 0.1, r, c)
+    player2.set_Qvalues(q_values)
+    # ... game loop ...
+    rewards.append(player2.total_rewards)
+```
+
+Inside each episode, turns alternate: MCTS moves on `turn == 0`, Q-Learning moves on `turn == 1`. After every episode, the cumulative reward earned by `player2` is appended to the `rewards` list for later plotting.
+
+## Terminal Reward Handling
+
+When a game ends, the `end` flag is set to `True` and a terminal reward must be pushed back into the Q-table before the episode closes:
+
+- **MCTS wins** (`turn == 1`, `result == "win"`): set `player2.game_status = "loss"` and call `player2.take_action()` once more. This triggers the Q-update path that applies the **−50** loss penalty to the last Q-Learning state-action pair.
+- **Q-Learning wins** (`turn == 0`, `result == "win"`): no extra call needed — the winning move is already processed with the **+50** reward inside `take_action()` itself.
+- **Draw** (either turn): set `player2.game_status = "draw"` and call `player2.take_action()` to propagate the **−10** draw penalty.
+
+## Convergence Monitoring
+
+After all episodes finish, `train_qlearning()` computes a rolling moving average of rewards using `mAverage(rewards, 1000)` — a window of 1,000 episodes — and saves the result as `MCTSvsQ.jpg`:
+
+```python
+rewards = np.array(rewards)
+rewards = mAverage(rewards, 1000)
+fig = plt.figure()
+x_range = np.arange(1, num_iterations - 998, 1)
+plt.plot(x_range, rewards)
+plt.xlabel('No. of Episodes')
+plt.ylabel('Rewards')
+fig.savefig('MCTSvsQ.jpg')
+```
+
+<Note>
+`MCTSvsQ.jpg` is saved automatically at the end of training. Open it to assess convergence — the moving-average reward should trend upward over episodes as the agent learns to avoid losses. A flat or declining curve indicates the learning rate or epsilon may need adjustment.
+</Note>
+
+## Artifact Outputs
+
+Two files are written to the working directory on completion:
+
+| File | Format | Purpose |
+|------|--------|---------|
+| `q_data.dat` | Raw pickle | Python `dict` of state-action → Q-value mappings |
+| `q_data.dat.gz` | gzip-compressed pickle | Portable, space-efficient copy for distribution |
+
+Both files contain the same Q-table. The `.gz` version is what `MCTS_vs_Q()` loads during evaluation.
+
+## How to Run Training
+
+Launch `main.py` and follow the interactive prompts:
+
+```text
+python main.py
+Choose from the following:
+ 1. MCTS agent vs MCTS agent
+ 2. MCTS agent vs Q-Learning agent
+2
+Choose from the following:
+ 1. Train Q-Learning against MCTS agent
+ 2. Test Q-Learning against MCTS
+1
+```
+
+The console will print the episode index (`i`) for each completed game, along with `P1 win`, `P2 win`, or `Draw` results.
+
+<Warning>
+50,000 episodes with `n=40` MCTS playouts per move takes significant time — potentially several hours on a standard CPU. To run a quick experiment, reduce `num_iterations` to 5,000–10,000 or lower `n` to 10. Both changes are made directly in `train_qlearning()` in `main.py`.
+</Warning>
+
+## Resuming or Extending Training
+
+The Q-table is passed by reference between episodes, so any values accumulated during a previous run can be loaded and continued. The mechanism is already wired into the source:
+
+1. At the start of `train_qlearning()`, `q_values` is initialised as an empty `dict`.
+2. Before the loop, `player2.set_Qvalues(q_values)` binds the agent to that dict.
+3. To resume from a saved checkpoint, decompress `q_data.dat.gz`, unpickle the dict, and assign it to `q_values` before the loop begins:
+
+```python
+import gzip, pickle, shutil
+
+with gzip.open('q_data.dat.gz', 'rb') as f_in:
+    with open('q_data.dat', 'wb') as f_out:
+        shutil.copyfileobj(f_in, f_out)
+
+with open('q_data.dat', 'rb') as handle:
+    q_values = pickle.load(handle)
+
+# then pass q_values into train_qlearning() or set directly
+```
+
+Any new episodes will update the existing Q-values in place, extending rather than overwriting prior learning.

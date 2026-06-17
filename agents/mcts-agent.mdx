@@ -1,0 +1,307 @@
+---
+title: "MCTS Agent API Reference for Connect 4"
+sidebarTitle: "MCTS Agent"
+description: "Reference for the MCTS class: constructor parameters, selection, expansion, simulation, back-propagation, and take_action methods for Connect 4 gameplay."
+---
+
+The `MCTS` class implements a Monte Carlo Tree Search agent for Connect 4. It manages the full MCTS loop — selection, expansion, simulation, back-propagation — and returns the best action after a configurable number of playouts. When `play_outs` is set to `0`, the agent falls back to a uniform random policy, making it easy to benchmark tree search against pure randomness without changing any other code.
+
+## Class: `MCTS`
+
+```python
+class MCTS:
+    def __init__(self, play_outs, player, C=2, r=6, c=5):
+        ...
+```
+
+### Constructor Parameters
+
+<ParamField path="play_outs" type="int" required>
+  Number of MCTS simulations to run per move. Each simulation runs the full
+  selection → expansion → simulation → back-propagation cycle. Set to `0` to
+  bypass tree search entirely and fall back to `random_action()`.
+</ParamField>
+
+<ParamField path="player" type="int" required>
+  The player token this agent represents. Must be `1` or `2`. The opponent's
+  token is derived automatically as `player % 2 + 1`.
+</ParamField>
+
+<ParamField path="C" type="float" default="2">
+  UCB1 exploration constant. Higher values encourage wider exploration of
+  unvisited nodes; lower values exploit already-promising branches more
+  aggressively. The standard theoretical value is `√2 ≈ 1.41`, but `2` works
+  well in practice for this board size.
+</ParamField>
+
+<ParamField path="r" type="int" default="6">
+  Number of rows in the board. Defaults to `6` for a standard Connect 4 grid.
+</ParamField>
+
+<ParamField path="c" type="int" default="5">
+  Number of columns in the board. Defaults to `5`.
+</ParamField>
+
+---
+
+## Methods
+
+### `set_state(state)`
+
+Loads the current board into the agent before calling `take_action()`. Must be called at the start of every turn.
+
+**Parameters**
+
+<ParamField path="state" type="list[list[int]]">
+  A 2D list of shape `[r][c]` representing the current board. Cells contain `0`
+  (empty), `1` (player 1's piece), or `2` (player 2's piece).
+</ParamField>
+
+**Returns:** `None`
+
+<Note>
+  Always call `set_state()` with the latest board before each call to
+  `take_action()`. The agent does not retain state between turns automatically.
+</Note>
+
+---
+
+### `take_action()`
+
+Runs `play_outs` iterations of the full MCTS loop starting from the current state, then selects the most-visited child as the move.
+
+**Returns**
+
+When `play_outs > 0`:
+
+<ResponseField name="state" type="list[list[int]]">
+  Updated 2D board after the chosen move has been applied.
+</ResponseField>
+
+<ResponseField name="end" type="bool">
+  `True` if the game is over (win or draw), `False` otherwise.
+</ResponseField>
+
+<ResponseField name="result" type="str">
+  `"win"` if this agent just won, `"draw"` if the board is full with no winner,
+  or `".."` if the game is still in progress.
+</ResponseField>
+
+<ResponseField name="action" type="int">
+  Column index (0-based) that the agent chose.
+</ResponseField>
+
+<ResponseField name="value" type="float">
+  The win/visit ratio (`win / N`) of the selected child node. Reflects the
+  tree's confidence in the chosen move.
+</ResponseField>
+
+<Note>
+  When `play_outs=0`, the method falls back to `random_action()` and returns
+  only a 3-tuple: `(state, end, result)` — **without** `action` or `value`.
+  Ensure callers unpack accordingly when mixing playout counts.
+</Note>
+
+---
+
+### `selection(root, depth) -> tuple[Node, int]`
+
+Traverses the existing tree from `root` downward, choosing children via the UCB1 formula until a leaf node (one with no children) is reached.
+
+**Parameters**
+
+<ParamField path="root" type="Node">
+  The node from which traversal begins — typically the root built by
+  `construct_tree()`.
+</ParamField>
+
+<ParamField path="depth" type="int">
+  Current recursion depth, used to alternate player tokens during expansion.
+  Pass `0` on the initial call.
+</ParamField>
+
+**Returns:** `(leaf: Node, depth: int)` — the deepest unvisited or highest-UCB1 node and the depth at which it was found.
+
+**UCB1 formula used internally:**
+
+```python
+ucb1 = node.get_ratio() + C * (math.log(root.N) / node.N) ** 0.5
+```
+
+Nodes with `N == 0` are selected randomly among all unvisited siblings before UCB1 is evaluated.
+
+---
+
+### `expansion(leaf, depth) -> tuple[Node, int]`
+
+Expands `leaf` by adding one child node for every valid (non-full) column. Returns a new child node for simulation.
+
+**Parameters**
+
+<ParamField path="leaf" type="Node">
+  The leaf node returned by `selection()`.
+</ParamField>
+
+<ParamField path="depth" type="int">
+  Current depth, used to determine which player's token to place. Even depth →
+  the MCTS agent's own token; odd depth → the opponent's token.
+</ParamField>
+
+**Returns:** `(child: Node, depth: int)` — the first newly-created child (a copy of `leaf.children[0]`) and `depth + 1`.
+
+<Note>
+  If the leaf is a terminal state (no valid columns), expansion returns the leaf
+  itself unchanged.
+</Note>
+
+---
+
+### `simulation(child, depth) -> str`
+
+Plays out a complete random game from `child`'s board state using two `Random_Player` instances, one for each player. Returns the outcome from the perspective of the MCTS agent.
+
+**Parameters**
+
+<ParamField path="child" type="Node">
+  The newly expanded node whose board state is the rollout starting position.
+</ParamField>
+
+<ParamField path="depth" type="int">
+  Current depth. Determines which `Random_Player` instance goes first in the
+  rollout.
+</ParamField>
+
+**Returns:** `str` — `"win"` if the MCTS agent's player wins the rollout, `"loss"` if the opponent wins, or `"draw"` if the board fills with no winner.
+
+---
+
+### `back_propagation(result, child)`
+
+Propagates the simulation result back through every node stored in `self.parents`, updating visit counts (`N`) and win scores (`win`).
+
+**Parameters**
+
+<ParamField path="result" type="str">
+  The string returned by `simulation()`: `"win"` adds `+1`, `"loss"` adds `-1`,
+  `"draw"` adds `0` to each node's `win` tally.
+</ParamField>
+
+<ParamField path="child" type="Node">
+  The simulated child node. Its ancestors are stored in `self.parents` and are
+  all updated.
+</ParamField>
+
+**Returns:** `None`
+
+---
+
+### `is_terminal_state(next_state, action) -> tuple[bool, str]`
+
+Determines whether `next_state` is a terminal board position.
+
+**Parameters**
+
+<ParamField path="next_state" type="list[list[int]]">
+  The board state after the most recent move.
+</ParamField>
+
+<ParamField path="action" type="int">
+  Column index of the last piece placed. Used to anchor the win-check scan.
+</ParamField>
+
+**Returns:**
+- `(True, "win")` — the agent's last move created four in a row.
+- `(True, "draw")` — all columns are full with no winner.
+- `(False, "..")` — the game is still in progress.
+
+---
+
+### `is_winning_state(next_state, action) -> bool`
+
+Checks whether the piece just placed in column `action` completes four consecutive tokens belonging to `self.player` in any of four directions: diagonal `[1,1]`, anti-diagonal `[1,-1]`, horizontal `[0,1]`, or vertical `[1,0]`.
+
+**Parameters**
+
+<ParamField path="next_state" type="list[list[int]]">
+  Board state to evaluate.
+</ParamField>
+
+<ParamField path="action" type="int">
+  Column index of the last piece placed. The method finds the row automatically
+  by scanning down from the top.
+</ParamField>
+
+**Returns:** `bool` — `True` if four in a row exists, `False` otherwise.
+
+---
+
+## Usage Example
+
+```python
+import numpy as np
+from MCTS import MCTS
+
+# Initialise a blank 6×5 board
+game = np.zeros((6, 5), dtype=int)
+
+# Create an MCTS agent for player 1 with 10 playouts per move
+player1 = MCTS(play_outs=10, player=1, C=2, r=6, c=5)
+
+# Load the current board state and take a move
+player1.set_state(game)
+game, end, result, action, value = player1.take_action()
+
+print(f"Player 1 chose column {action} (value={value:.3f})")
+# e.g. → Player 1 chose column 2 (value=0.600)
+```
+
+<Tip>
+  Increase `play_outs` for stronger play at the cost of more compute time.
+  Values between `10` and `100` are typical for interactive use; `1000+` are
+  used for training comparisons.
+</Tip>
+
+---
+
+## Class: `Node`
+
+The `Node` class represents a single board position in the MCTS search tree.
+
+```python
+class Node:
+    def __init__(self, state):
+        ...
+```
+
+### Constructor
+
+<ParamField path="state" type="list[list[int]]">
+  A 2D board to snapshot. The constructor performs a `copy.deepcopy` so
+  subsequent mutations to the source board do not affect this node.
+</ParamField>
+
+### Instance Fields
+
+| Field | Type | Description |
+|---|---|---|
+| `N` | `int` | Total number of times this node has been visited during back-propagation. Starts at `0`. |
+| `win` | `int / float` | Cumulative win score. Incremented by `+1` for a win, `-1` for a loss, `0` for a draw. Starts at `0`. |
+| `children` | `list[Node]` | Child nodes added during expansion. Empty until `expansion()` is called. |
+| `state` | `list[list[int]]` | Deep copy of the board at the time this node was created. |
+
+### Methods
+
+**`update(win)`**
+
+Increments `self.N` by 1 and conditionally increments `self.win`.
+
+**`get_ratio() -> float`**
+
+Returns `win / N`. Returns `0` if `N == 0` to avoid division by zero.
+
+```python
+node = Node(board_state)
+node.N = 5
+node.win = 3
+print(node.get_ratio())  # → 0.6
+```

@@ -1,0 +1,244 @@
+---
+title: "Monte Carlo Tree Search: How the MCTS Agent Thinks"
+sidebarTitle: "MCTS Algorithm"
+description: "Covers MCTS selection, expansion, simulation, back-propagation, UCB1 scoring, pre-built subtrees, and why most-visited is chosen over best win-rate."
+---
+
+The MCTS agent builds a game tree incrementally by running many short simulations (playouts). Each playout passes through four phases — selection, expansion, simulation, and back-propagation — that together balance exploring new moves against exploiting moves already known to be good.
+
+## Node Structure
+
+Every position in the tree is represented by a `Node` object that stores the board state and accumulates statistics across all playouts that passed through it.
+
+```python
+# From MCTS.py — Node class
+class Node:
+
+    def __init__(self, state):
+        self.N = 0
+        self.win = 0
+        self.children = []
+        self.state = copy.deepcopy(state)
+
+    def update(self, win):
+        if self.win == True:
+            self.win += 1
+        self.N += 1
+
+    def get_ratio(self):
+        if( self.N == 0):
+            return 0
+        return 1.0 * self.win / self.N
+```
+
+| Field        | Type          | Meaning                                            |
+|--------------|---------------|----------------------------------------------------|
+| `N`          | `int`         | Total number of times this node has been visited   |
+| `win`        | `int`         | Cumulative value: +1 wins, -1 losses, 0 draws      |
+| `children`   | `list[Node]`  | Child nodes, one per legal column in this position |
+| `state`      | `list[list]`  | Deep-copied board snapshot at this node            |
+
+## UCB1 Formula
+
+During selection the algorithm must decide which child to explore next. It uses the Upper Confidence Bound 1 (UCB1) formula to balance exploitation (high win rate) with exploration (low visit count):
+
+```
+ucb1 = win/N  +  C * sqrt( ln(parent.N) / N )
+```
+
+In code:
+
+```python
+# From MCTS.py — selection()
+ucb1 = root.children[i].get_ratio() + self.C*(np.log(root.N)/root.children[i].N)**0.5
+```
+
+The constant `C` (default `2`) controls the exploration–exploitation trade-off. A larger `C` pushes the agent toward less-visited nodes; a smaller `C` makes it stick to nodes with the best observed win rate. Any child with `N == 0` (never visited) is selected uniformly at random before UCB1 is applied, ensuring every child is sampled at least once.
+
+## The Four Phases
+
+<Steps>
+  <Step title="Selection">
+    Starting from the root, the algorithm descends the tree by repeatedly choosing the child with the highest UCB1 score until it reaches a node with no children (a leaf).
+
+    ```python
+    # From MCTS.py — selection()
+    def selection(self, root, depth):
+
+        depth += 1
+        self.parents.append(root)
+
+        if( len(root.children) == 0 ):
+            return root, depth - 1
+
+        next_node = root.children[0]
+        probabilites = np.ones(len(root.children), dtype = float)
+
+        max_val = -math.inf
+
+        zero_states = []
+        for i in range(len(root.children)):
+            if root.children[i].N == 0:
+                zero_states.append(root.children[i])
+
+        for i in range(len(root.children)):
+            if(root.children[i].N == 0):
+                next_node = random.choices(zero_states, k=1)
+                next_node = next_node[0]
+                break
+            else:
+                ucb1 = root.children[i].get_ratio() + self.C*(np.log(root.N)/root.children[i].N)**0.5
+
+                if ucb1 > max_val or (ucb1 == max_val and root.children[i].N > next_node.N):
+                    next_node = root.children[i]
+                    max_val = ucb1
+
+        res, depth = self.selection(next_node, depth)
+        return res, depth
+    ```
+
+    Every node visited during descent is appended to `self.parents` so that back-propagation can update them all.
+  </Step>
+
+  <Step title="Expansion">
+    When a leaf is reached, `expansion()` creates one child node for each valid column move. The current player is assigned based on the parity of `depth`: even depth means the MCTS agent's own player; odd depth means the opponent.
+
+    ```python
+    # From MCTS.py — expansion()
+    def expansion(self, leaf, depth):
+
+        curr_state = copy.deepcopy(leaf.state)
+
+        count = 0
+        for i in range(self.c):
+            if curr_state[0][i] == 0:
+                count += 1
+                new = copy.deepcopy(leaf.state)
+                for x in range(self.r):
+                    if(new[self.r-1-x][i] == 0):
+                        if( depth%2 == 0):
+                            new[self.r-1-x][i] = self.player
+                        else:
+                            new[self.r-1-x][i] = self.player%2 + 1
+                        break
+
+                leaf.children.append(Node(new))
+
+        if (len(leaf.children) != 0 and leaf.N != 0):
+            new_node = Node(leaf.children[0].state)
+        else:
+            return leaf, depth
+
+        self.parents.append(new_node)
+        return new_node, depth+1
+    ```
+
+    <Note>
+      Depth parity controls turn-taking: `depth % 2 == 0` assigns `self.player`; `depth % 2 == 1` assigns `self.player % 2 + 1` (the opponent). This correctly models alternating moves through all levels of the tree.
+    </Note>
+  </Step>
+
+  <Step title="Simulation">
+    From the newly expanded node, two `Random_Player` instances play the game out to completion by making random moves. The player assignment at simulation start again respects depth parity so the correct player moves first.
+
+    ```python
+    # From MCTS.py — simulation()
+    def simulation(self, child, depth):
+
+        player1 = None
+        player2 = None
+
+        if( depth%2 == 0):
+            player1 = Random_Player(self.player, self.r, self.c)
+            player2 = Random_Player(self.player%2+1, self.r, self.c)
+        else:
+            player1 = Random_Player(self.player%2+1, self.r, self.c)
+            player2 = Random_Player(self.player, self.r, self.c)
+
+        # ... game loop alternating player1 and player2 until terminal state
+        # returns "win", "loss", or "draw" from the MCTS agent's perspective
+    ```
+
+    After the random playout terminates, the result is translated into `"win"`, `"loss"`, or `"draw"` relative to the MCTS agent before being passed to back-propagation.
+  </Step>
+
+  <Step title="Back-Propagation">
+    Every node recorded in `self.parents` during selection and expansion is updated: visit count `N` increments by 1, and `win` shifts by `+1` for a win, `-1` for a loss, and `0` for a draw.
+
+    ```python
+    # From MCTS.py — back_propagation()
+    def back_propagation(self, result, child):
+
+        x = 0
+        if(result == "win"):
+            x = 1
+        elif(result == "loss"):
+            x = -1
+
+        for node in self.parents:
+            node.N += 1
+            node.win += x
+    ```
+
+    Applying the same `x` to all ancestors means nodes on winning paths accumulate higher `win` totals, making them more attractive to UCB1 in later iterations.
+  </Step>
+</Steps>
+
+## Pre-Built Subtree
+
+Before any playouts begin, `construct_tree()` pre-expands the first four levels of the game tree deterministically. This seeds the tree with a realistic set of positions so that early playouts are not wasted exploring trivially bad lines.
+
+```python
+# From MCTS.py — construct_tree()
+def construct_tree(self, root, depth):
+    if depth <= 0:
+        return
+
+    for i in range(self.c):
+        if root.state[0][i] == 0:
+            # ... build child_state by dropping the correct player's piece
+            child = Node(child_state)
+            root.children.append(child)
+            self.construct_tree(child, depth-1)
+```
+
+This is called once per move with `depth=4`:
+
+```python
+# From MCTS.py — take_action()
+root = Node(self.state)
+self.construct_tree(root, 4)
+
+for i in range(self.play_outs):
+    self.parents = []
+    leaf, depth   = self.selection(root, 0)
+    child, depth  = self.expansion(leaf, depth)
+    result        = self.simulation(child, depth)
+    self.back_propagation(result, child)
+```
+
+## Action Selection
+
+After all playouts, the agent picks the child of the root with the **highest visit count `N`**, not the highest win ratio:
+
+```python
+# From MCTS.py — take_action()
+max_N = -math.inf
+res   = None
+action = -1
+
+for i in root.children:
+    if max_N < i.N:
+        res   = i
+        max_N = i.N
+        for x in range(self.r):
+            for y in range(self.c):
+                if(root.state[x][y] != i.state[x][y]):
+                    action = y
+```
+
+Visit count is a more robust signal than win ratio because a node visited 200 times with a 55 % win rate is more trustworthy than one visited 3 times with a 100 % win rate. Selecting by `N` naturally favors well-explored, high-confidence moves.
+
+<Tip>
+  Choosing the right playout count trades off speed against strength. A value of `10` runs quickly and is suitable for the MCTS vs Q-Learning evaluation loop. Values of `40` or higher produce noticeably stronger play but increase per-move computation time significantly — especially when the pre-built depth-4 subtree has many open columns.
+</Tip>

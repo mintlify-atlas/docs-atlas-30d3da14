@@ -1,0 +1,188 @@
+---
+title: "Q-Learning: Tabular Reinforcement Learning for Connect 4"
+sidebarTitle: "Q-Learning"
+description: "Covers state-action string encoding, Bellman Q-value updates, epsilon-greedy selection, mirror symmetry for compression, and gzip pickle Q-table storage."
+---
+
+Q-Learning maintains a lookup table — the Q-table — that maps every `(state, action)` pair the agent has encountered to an estimated expected cumulative reward. By repeatedly playing games and updating those estimates with the Bellman equation, the agent gradually learns which moves lead to wins and which lead to losses.
+
+## State-Action Encoding
+
+Board states are serialized to plain strings by concatenating every cell value row by row, left to right. The target column index is then appended directly to that string to form the dictionary key.
+
+```python
+# From QLearning.py — take_action()
+str_curr_state = ""
+for m in range(self.r):
+    for n in range(self.c):
+        str_curr_state += str(self.state[m][n])
+
+# Key for column i:
+str_curr_state_action = str_curr_state + str(i)
+```
+
+For example, on an empty 3×5 board the state string is `"000000000000000"`. Choosing column `2` produces the key `"0000000000000002"`. This flat string representation lets the Q-table use a standard Python dictionary for O(1) lookups.
+
+## Q-Value Update (Bellman Equation)
+
+After every move, the agent updates the Q-value of the **previous** state-action pair using the Bellman equation:
+
+```
+Q(s, a) += alpha * (R + gamma * max_a' Q(s', a') - Q(s, a))
+```
+
+In code:
+
+```python
+# From QLearning.py — take_action()
+q_s_a = self.q_values[str_prev_state_action]
+q_s_a += self.alpha*(R + self.discount_factor*max_q_sDash_a - q_s_a )
+self.q_values[str_prev_state_action] = q_s_a
+```
+
+- `alpha` (learning rate) controls how much new information overrides old estimates.
+- `discount_factor` (`gamma`) weights future rewards relative to the immediate reward.
+- `max_q_sDash_a` is the maximum Q-value over all valid actions in the next state `s'`.
+
+## Reward Structure
+
+| Outcome          | Reward `R` |
+|------------------|------------|
+| Win              | `+50`      |
+| Loss             | `−50`      |
+| Draw             | `−10`      |
+| Per-step penalty | `−1`       |
+
+The per-step penalty of `−1` is applied on every non-terminal move, encouraging the agent to win quickly rather than dragging games out. Terminal rewards override it when the game ends:
+
+```python
+# From QLearning.py — take_action()
+R = -1
+if self.game_status != "running":
+    if self.game_status == "loss":
+        R = -50
+    elif self.game_status == "draw":
+        R = -10
+    else:
+        R = 50
+```
+
+## Epsilon-Greedy Policy
+
+At each turn the agent uses an epsilon-greedy policy to balance exploration and exploitation. With probability `epsilon` a random valid action is chosen; otherwise the action with the highest Q-value is chosen.
+
+```python
+# From QLearning.py — epislon_greedy_policy()
+def epislon_greedy_policy(self, next_q):
+    n = 0
+    greedy_action_value = -math.inf
+    greedy_action_indx = -1
+
+    actions_list = []
+    greedy_actions = []
+
+    for i in range(self.c):
+        if next_q[i] != -math.inf:
+            n += 1
+            actions_list.append(i)
+
+    greedy_action_value = max(next_q)
+
+    actions = np.ones(self.c)
+
+    for i in range(self.c):
+        actions[i] = i
+        if greedy_action_value == next_q[i]:
+            greedy_actions.append(i)
+
+    e = random.uniform(0,1)
+
+    if e < self.epsilon:
+        action =  random.choices(actions_list, k=1)
+        action = np.int64(action[0])
+    else:
+        action =  random.choices(greedy_actions, k=1)
+        action = np.int64(action[0])
+
+    return action
+```
+
+Invalid columns (those whose top cell is occupied) are excluded from `actions_list` by assigning them a value of `-math.inf` before `epislon_greedy_policy` is called. When multiple actions tie for the greedy maximum, one is chosen uniformly at random from `greedy_actions`.
+
+## Mirror Symmetry
+
+Connect 4 on a 5-column board is horizontally symmetric: the mirror image of any position is strategically equivalent. The agent exploits this by sharing Q-values between a state-action pair and its horizontal reflection, effectively halving the state space.
+
+```python
+# From QLearning.py — mirror_state_action()
+def mirror_state_action(self, curr_state, action):
+    str_mirror_state_action = ""
+    for m in range(self.r):
+        for n in range(self.c):
+            str_mirror_state_action += str(curr_state[m][self.c-1-n])
+    str_mirror_state_action += str( self.c - 1 - action)
+
+    return str_mirror_state_action
+```
+
+Reversing column order (`self.c-1-n`) mirrors the board, and remapping the action (`self.c - 1 - action`) maps, for example, column 0 to column 4 on a 5-column board.
+
+When a new state-action key is first encountered, the mirror is checked before defaulting to zero:
+
+```python
+# From QLearning.py — take_action()
+if str_curr_state_action not in self.q_values:
+    str_mirror_state_action = self.mirror_state_action(self.state, i)
+    if str_mirror_state_action not in self.q_values:
+        self.q_values[str_mirror_state_action] = 0
+
+    self.q_values[str_curr_state_action] = self.q_values[str_mirror_state_action]
+```
+
+After every Q-value update, both the original key and its mirror are updated to the same new value to keep them in sync:
+
+```python
+# From QLearning.py — take_action()
+str_mirror_prev_state_action = self.mirror_state_action(self.previous_state, self.previous_action)
+self.q_values[str_mirror_prev_state_action] = q_s_a
+```
+
+## Q-Table Persistence
+
+After training completes, the Q-table is serialized with `pickle` and then gzip-compressed to keep file size manageable:
+
+```python
+# From main.py — train_qlearning()
+with open('q_data.dat', 'wb') as handle:
+    pickle.dump(q_values, handle)
+
+with open('q_data.dat', 'rb') as f_in:
+    with gzip.open('q_data.dat.gz', 'wb') as f_out:
+        shutil.copyfileobj(f_in, f_out)
+```
+
+During evaluation the process is reversed — the `.gz` file is decompressed and the dictionary loaded before any test games begin:
+
+```python
+# From main.py — MCTS_vs_Q()
+with gzip.open('q_data.dat.gz', 'rb') as f_in:
+    with open('q_data.dat', 'wb') as f_out:
+        shutil.copyfileobj(f_in, f_out)
+
+with open('q_data.dat', 'rb') as handle:
+    q_values = pickle.load(handle)
+```
+
+<Note>
+  During evaluation, the `Q_Learning` agent is instantiated with `alpha=0` and `epsilon=0` to disable learning and exploration entirely. This ensures the agent plays purely from its trained Q-table without modifying it:
+
+  ```python
+  # From main.py — MCTS_vs_Q()
+  player2 = Q_Learning(2, 0, 0.8, 0, rows, cols)
+  #                       ^alpha  ^epsilon
+  ```
+</Note>
+
+<Tip>
+  Training uses `alpha=0.6`, `discount_factor=0.8`, and `epsilon=0.1` against an MCTS opponent running 40 playouts on a 4×5 board for 50 000 episodes. These hyperparameters are set in `train_qlearning()` in `main.py`. Evaluation reduces the board to 3×5 rows and the MCTS opponent to 10 playouts, which is where the Q-table demonstrates convergence most reliably.
+</Tip>

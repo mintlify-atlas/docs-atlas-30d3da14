@@ -1,0 +1,169 @@
+---
+title: "Evaluating Agent Performance: MCTS vs Q-Learning Matchups"
+sidebarTitle: "Evaluation"
+description: "Run MCTS vs MCTS and MCTS vs Q-Learning head-to-head matchups, read per-game action logs, and interpret aggregate win, draw, and loss statistics."
+---
+
+The project provides two evaluation modes: MCTS vs MCTS and MCTS vs Q-Learning. Both modes print per-turn details — the action chosen, the MCTS visit count or Q-value, and the game outcome — then report aggregate win, draw, and loss statistics at the end of the run.
+
+## Mode 1: MCTS vs MCTS
+
+The `MCTS_vs_MCTS(x, y)` function pits two MCTS agents against each other on a 6×5 board for a single game (`num_iterations = 1`). Both agents share the same UCB1 constant (`C_MCTS = 2`) but can use different playout budgets.
+
+**Function signature:**
+
+```python
+MCTS_vs_MCTS(x, y)
+# x = number of playouts for player 1
+# y = number of playouts for player 2
+```
+
+**Per-turn output** printed to the console each move:
+
+- Which player just moved and their playout budget
+- The column index selected (`Action selected`)
+- Total playouts available for the *next* state
+- The win-ratio value (`win / N`) of the chosen child node according to MCTS
+
+**Terminal output** at game end:
+
+```text
+PLAYER 1 WINS :   (or PLAYER 2 WINS : / DRAW :)
+0 0 0 0 0
+0 0 0 0 0
+0 0 1 0 0
+0 2 1 0 0
+0 2 1 0 0
+0 2 1 0 0
+```
+
+The final board state is printed via `print_grid()` so you can visually confirm the winning four-in-a-row.
+
+### How to Run MCTS vs MCTS
+
+```text
+python main.py
+Choose from the following:
+ 1. MCTS agent vs MCTS agent
+ 2. MCTS agent vs Q-Learning agent
+1
+Enter number of playouts for player 1:
+10
+Enter number of playouts for player 2:
+10
+```
+
+You can enter any integer for each player's playout count. Setting one player higher (e.g., 100 vs 10) will generally produce a stronger player 1 at the cost of longer compute per move.
+
+---
+
+## Mode 2: MCTS vs Q-Learning
+
+The `MCTS_vs_Q()` function evaluates a pre-trained Q-Learning agent against an MCTS opponent over 100 test games. It requires `q_data.dat.gz` in the working directory.
+
+**Key parameters used in `MCTS_vs_Q()`:**
+
+| Parameter | Value | Notes |
+|-----------|-------|-------|
+| `testing_iter` | 100 | Number of evaluation games |
+| `n` (MCTS playouts) | 10 | MCTS opponent strength |
+| `C_MCTS` | 2 | UCB1 exploration constant |
+| `rows` | 3 | Board rows (smaller than training's 4) |
+| `cols` | 5 | Board columns |
+| `alpha` | 0 | Learning disabled during evaluation |
+| `epsilon` | 0 | Fully greedy policy at test time |
+
+The Q-Learning agent's learning rate and exploration are both set to zero so the Q-table is frozen: no updates occur during testing.
+
+**Per-game console output:**
+
+```text
+Player 1 (MCTS with10 playouts
+Action selected : 2
+Value of next state according to MCTS : 0.43
+
+Player 2 (Q-learning)
+Action selected : 3
+Value of next state : 12.5
+```
+
+**Aggregate output after all 100 games:**
+
+```text
+Draws: 0.12
+Accuracy of P1, MCTS10: 0.67
+Accuracy of P2, Q_Learning: 0.21
+```
+
+### How to Run MCTS vs Q-Learning
+
+```text
+python main.py
+Choose from the following:
+ 1. MCTS agent vs MCTS agent
+ 2. MCTS agent vs Q-Learning agent
+2
+Choose from the following:
+ 1. Train Q-Learning against MCTS agent
+ 2. Test Q-Learning against MCTS
+2
+```
+
+The script automatically decompresses `q_data.dat.gz` → `q_data.dat` and loads the Q-table before starting the evaluation loop.
+
+---
+
+## Interpreting Results
+
+### MCTS value (`win / N`)
+
+Each MCTS child node tracks `win` (cumulative score across simulations, ranging from −N to +N) and `N` (visit count). The reported value is `win / N`:
+
+- **Positive** (e.g., `0.6`): the subtree rooted at this move tends to produce wins for the current player.
+- **Near zero**: roughly neutral — wins and losses cancel out across simulations.
+- **Negative** (e.g., `−0.3`): the subtree tends to produce losses; the agent avoided this move via UCB1.
+
+### Q-Learning action value `Q(s, a)`
+
+The value printed for Q-Learning moves is the stored `Q(s, a)` for the chosen state-action pair:
+
+- **Large positive** (e.g., `40`): the agent strongly expects future rewards — likely near a win or has seen this position lead to wins frequently.
+- **Near zero or slightly negative**: the agent has little information about this state, or the expected return is marginal.
+- **Large negative** (e.g., `−45`): the agent expects this line of play to end in a loss or draw.
+
+### Sample aggregate statistics
+
+The three numbers printed at the end sum to 1.0:
+
+```
+Draws + P1 accuracy + P2 accuracy = 1.0
+```
+
+A well-trained Q-Learning agent should push its accuracy above the draw rate and, ideally, above the MCTS win rate over 100 games.
+
+<Note>
+The pre-trained `q_data.dat.gz` was trained on a **4×5 board** against MCTS with `n=40`. The evaluation function uses a **3×5 board**, which tests whether the agent has learned generalizable strategies on a slightly reduced state space. As noted in the source: *"Convergence till n=10 can be tested as Q-Learning is trained against MC10. Higher values can be tested but the results will show slightly less win percentage due to lack of training for higher values."*
+</Note>
+
+---
+
+## Extending Evaluation
+
+### Comparing multiple playout counts (MCTS vs MCTS)
+
+To benchmark MCTS strength across playout budgets, wrap `MCTS_vs_MCTS` in a loop and increase `num_iterations` inside the function:
+
+```python
+for x in [5, 10, 25, 50]:
+    MCTS_vs_MCTS(x, 10)
+```
+
+Collect the `winsP1` and `draws` lists returned (or printed) by each call to build a performance curve.
+
+### Evaluating Q-Learning on a larger board
+
+The 3×5 test board is smaller than the 4×5 training board. To evaluate on the full training board or the 6×5 MCTS board:
+
+1. Open `main.py` and change `rows` and `cols` in `MCTS_vs_Q()` to match your desired dimensions.
+2. Retrain on the same board dimensions so the Q-table keys correspond to the new state encoding.
+3. Re-run evaluation with the updated `q_data.dat.gz`.

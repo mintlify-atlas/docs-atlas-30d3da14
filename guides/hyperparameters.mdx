@@ -1,0 +1,106 @@
+---
+title: "Hyperparameter Reference for MCTS and Q-Learning Agents"
+sidebarTitle: "Hyperparameters"
+description: "Full reference for every MCTS and Q-Learning parameter: default values, training vs evaluation settings, reward structure, and tuning recommendations."
+---
+
+Both agents expose several hyperparameters that trade off between compute time and agent strength. This page documents every parameter, its default value (taken directly from the source), and guidance on how to tune it.
+
+## MCTS Hyperparameters
+
+The `MCTS` class is constructed as `MCTS(play_outs, player, C, r, c)`. All four tunable parameters are visible in `main.py` and `MCTS.py`:
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `play_outs` | varies | Number of MCTS iterations executed per move. Higher values build a deeper, more accurate search tree but increase wall-clock time per turn. Setting `0` falls back to a random move. |
+| `C` | 2 | UCB1 exploration constant. Lower values exploit known good moves more aggressively; higher values encourage broader tree exploration. |
+| `r` | 6 | Number of board rows. Both players must use the same value, and it must match the array passed to `set_state()`. |
+| `c` | 5 | Number of board columns. Same constraint as `r`. |
+
+**Experiment values from source:**
+
+- MCTS vs MCTS (`MCTS_vs_MCTS`): `C = 2`, playout count entered interactively by the user.
+- Training (`train_qlearning`): opponent uses `n = 40` playouts, `C = 2`, on a 4×5 board.
+- Evaluation (`MCTS_vs_Q`): opponent uses `n = 10` playouts, `C = 2`, on a 3×5 board.
+
+---
+
+## Q-Learning Hyperparameters
+
+The `Q_Learning` class is constructed as `Q_Learning(player, alpha, discount_factor, epsilon, r, c)`. Training and evaluation use different values for several parameters:
+
+| Parameter | Training value | Evaluation value | Description |
+|-----------|---------------|-----------------|-------------|
+| `alpha` | 0.6 | 0 | Learning rate. Controls how aggressively new Q-estimates overwrite old ones. Set to `0` during evaluation to freeze the Q-table. |
+| `discount_factor` | 0.8 | 0.8 | Gamma — discounts future rewards relative to immediate ones. A value closer to 1 makes the agent plan further ahead; closer to 0 makes it more myopic. |
+| `epsilon` | 0.1 | 0 | ε-greedy exploration probability. During training, 10% of moves are random. Set to `0` at evaluation for a fully greedy policy. |
+| `r` | 4 (train) / 3 (eval) | same | Board rows. Must match the board dimensions passed to `set_state()`. |
+| `c` | 5 | 5 | Board columns. |
+
+---
+
+## Reward Structure
+
+The Q-Learning agent receives scalar rewards that shape its behaviour. All reward values are hardcoded in `QLearning.py`:
+
+| Outcome | Reward |
+|---------|--------|
+| Q-Learning wins | +50 |
+| Q-Learning loses | −50 |
+| Draw | −10 |
+| Per-step (every move taken) | −1 |
+
+The **per-step penalty of −1** is applied on every move regardless of outcome. This discourages passive play — an agent that drags the game out accumulates more −1 penalties, so the optimal strategy is to win as quickly as possible. Combined with the large asymmetry between win (+50) and loss (−50), the agent is strongly motivated to pursue decisive victories and avoid attrition.
+
+The draw penalty (−10) sits between neutral and loss. The agent learns to prefer a win over a draw, and a draw over a loss, which mirrors rational Connect 4 strategy.
+
+---
+
+## Board Size and Q-Table Size
+
+The Q-table key encodes the entire board state as a string of cell values (`0`, `1`, or `2`), so the state space grows exponentially with board dimensions:
+
+| Board | Cells | Upper-bound states |
+|-------|-------|--------------------|
+| 3×5 | 15 | 3¹⁵ ≈ 14 million |
+| 4×5 | 20 | 3²⁰ ≈ 3.5 billion |
+| 6×5 | 30 | 3³⁰ ≈ 200 billion |
+
+In practice, most of those states are unreachable. Mirror symmetry also halves the effective table size: `Q_Learning.mirror_state_action()` maps each board position to its horizontal reflection and stores a single shared Q-value for both, cutting memory roughly in half.
+
+<Tip>
+Start with a small board (3×5 or 4×5) for faster convergence. With 50,000 training episodes the agent can visit a meaningful fraction of the 3×5 state space. For larger boards, increase `num_iterations` proportionally and monitor the moving-average reward curve in `MCTSvsQ.jpg` before concluding training.
+</Tip>
+
+---
+
+## UCB1 Exploration Constant (C)
+
+The UCB1 formula balances exploitation and exploration in the MCTS selection step:
+
+```
+UCB1 = win/N + C * sqrt(ln(N_parent) / N_child)
+```
+
+`C = 2` is the standard value from the MCTS literature and is used throughout this project. Guidelines for adjusting it:
+
+- **Increase C** if the agent seems to always exploit the same column without exploring alternatives — the exploration bonus becomes larger, pushing the tree into less-visited branches.
+- **Decrease C** if evaluation shows the agent wastes playouts on clearly losing moves — tighten exploitation to focus on the most promising branches.
+
+<Note>
+`C` has the most impact at **low playout counts**. With only 10–40 playouts, the tree is shallow and the exploration bonus significantly influences which node is selected. At 100+ playouts, the tree is explored broadly regardless of `C`, and its effect on final move quality diminishes.
+</Note>
+
+---
+
+## num_iterations (Training Episodes)
+
+`num_iterations` in `train_qlearning()` controls the total number of self-play games used to build the Q-table:
+
+| Setting | Episodes | Use case |
+|---------|----------|----------|
+| Quick experiment | 5,000 – 10,000 | Verify the setup runs and reward trends upward |
+| Default | 50,000 | Baseline from the original source |
+| Production quality | 100,000+ | More complete coverage of the 4×5 state space |
+
+Reducing `num_iterations` speeds up the training run linearly. Halving it also halves the wall-clock time but leaves a larger fraction of the state space unexplored, which will show up as lower Q-Learning win rates during evaluation against stronger MCTS opponents.
